@@ -2,51 +2,96 @@
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 
-#define I2C_MASTER_SCL_IO           22
-#define I2C_MASTER_SDA_IO           19
-#define I2C_MASTER_PORT             I2C_NUM_0
-#define I2C_MASTER_FREQ_HZ          100000
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-static const char *TAG = "I2C_SCAN";
+#define I2C_SDA_PIN      21
+#define I2C_SCL_PIN      22
+#define I2C_PORT         I2C_NUM_0
+#define I2C_FREQ_HZ      100000   // PCF8574 supports 100kHz
 
-void app_main(void)
+static const char *TAG = "PCF8574";
+
+// ---------------------------------------------------
+// Initialize I2C Bus
+// ---------------------------------------------------
+i2c_master_bus_handle_t init_i2c()
 {
-    ESP_LOGI(TAG, "Starting I2C Scanner...");
-
-    // 1. Create config
-    i2c_master_bus_config_t bus_config = {
-        .i2c_port = I2C_MASTER_PORT,
-        .scl_io_num = I2C_MASTER_SCL_IO,
-        .sda_io_num = I2C_MASTER_SDA_IO,
+    i2c_master_bus_config_t bus_cfg = {
+        .i2c_port = I2C_PORT,
+        .sda_io_num = I2C_SDA_PIN,
+        .scl_io_num = I2C_SCL_PIN,
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .glitch_ignore_cnt = 7,
     };
 
     i2c_master_bus_handle_t bus_handle;
+    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &bus_handle));
+    ESP_LOGI(TAG, "I2C Bus Initialized");
 
-    // 2. Create I2C bus
-    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &bus_handle));
+    return bus_handle;
+}
 
-    // 3. Scan all addresses
-    for (int addr = 1; addr < 127; addr++) {
-        i2c_master_dev_handle_t dev_handle;
-        i2c_device_config_t dev_cfg = {
-            .device_address = addr,
-            .scl_speed_hz = I2C_MASTER_FREQ_HZ,
-        };
+// ---------------------------------------------------
+// Add PCF8574 device
+// ---------------------------------------------------
+i2c_master_dev_handle_t pcf8574_add(i2c_master_bus_handle_t bus, uint8_t address)
+{
+    i2c_device_config_t dev_cfg = {
+        .device_address = address,
+        .scl_speed_hz = I2C_FREQ_HZ,
+    };
 
-        esp_err_t add_result = i2c_master_bus_add_device(bus_handle, &dev_cfg, &dev_handle);
+    i2c_master_dev_handle_t dev_handle;
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &dev_cfg, &dev_handle));
 
-        if (add_result == ESP_OK) {
-            esp_err_t ret = i2c_master_probe(bus_handle, addr, 1000);
+    ESP_LOGI(TAG, "PCF8574 added at 0x%02X", address);
 
-            if (ret == ESP_OK) {
-                ESP_LOGI(TAG, "I2C device found at 0x%02X", addr);
-            }
+    return dev_handle;
+}
 
-            i2c_master_bus_rm_device(dev_handle);
-        }
+// ---------------------------------------------------
+// Write 1 byte to PCF8574
+// ---------------------------------------------------
+void pcf8574_write(i2c_master_dev_handle_t dev, uint8_t value)
+{
+    ESP_ERROR_CHECK(i2c_master_transmit(dev, &value, 1, 100));
+    ESP_LOGI(TAG, "PCF8574 Write: 0x%02X", value);
+}
+
+// ---------------------------------------------------
+// Read 1 byte from PCF8574
+// ---------------------------------------------------
+uint8_t pcf8574_read(i2c_master_dev_handle_t dev)
+{
+    uint8_t data = 0;
+    ESP_ERROR_CHECK(i2c_master_receive(dev, &data, 1, 100));
+    ESP_LOGI(TAG, "PCF8574 Read: 0x%02X", data);
+    return data;
+}
+
+// ---------------------------------------------------
+// Application Main
+// ---------------------------------------------------
+void app_main(void)
+{
+    ESP_LOGI(TAG, "Starting PCF8574 Example...");
+
+    // 1. Initialize I2C Bus
+    i2c_master_bus_handle_t bus = init_i2c();
+
+    // 2. Add PCF8574 (change address if needed)
+    // Default address = 0x20 → 0b0100 A2 A1 A0
+    i2c_master_dev_handle_t pcf = pcf8574_add(bus, 0x26);
+
+    // 3. Write to PCF8574
+    // Example: Turn ON P0, P1, P2 → write LOW (0 means output LOW)
+    pcf8574_write(pcf, 0b11111000);
+
+    // 4. Read Inputs
+    while (1) {
+        uint8_t input = pcf8574_read(pcf);
+        printf("PCF Input Pins = 0x%02X\n", input);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
-
-    ESP_LOGI(TAG, "Scan Completed.");
 }
