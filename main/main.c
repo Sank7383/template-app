@@ -26,9 +26,14 @@ i2c_master_bus_handle_t init_i2c()
     };
 
     i2c_master_bus_handle_t bus_handle;
-    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &bus_handle));
+    esp_err_t ret= (i2c_new_master_bus(&bus_cfg, &bus_handle));
+    if(ret != ESP_OK) {
+        ESP_LOGE(TAG, "I2C Bus Initialization Error: %s", esp_err_to_name(ret));
+        return NULL;
+    }
+    else {      
     ESP_LOGI(TAG, "I2C Bus Initialized");
-
+    }   
     return bus_handle;
 }
 
@@ -43,10 +48,16 @@ i2c_master_dev_handle_t pcf8574_add(i2c_master_bus_handle_t bus, uint8_t address
     };
 
     i2c_master_dev_handle_t dev_handle;
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &dev_cfg, &dev_handle));
+    esp_err_t ret= (i2c_master_bus_add_device(bus, &dev_cfg, &dev_handle));
 
+    if(ret != ESP_OK) {
+        ESP_LOGE(TAG, "PCF8574 Add Device Error: %s", esp_err_to_name(ret));
+        return NULL;
+    }
+    else {
     ESP_LOGI(TAG, "PCF8574 added at 0x%02X", address);
-
+    
+    }
     return dev_handle;
 }
 
@@ -55,8 +66,14 @@ i2c_master_dev_handle_t pcf8574_add(i2c_master_bus_handle_t bus, uint8_t address
 // ---------------------------------------------------
 void pcf8574_write(i2c_master_dev_handle_t dev, uint8_t value)
 {
-    ESP_ERROR_CHECK(i2c_master_transmit(dev, &value, 1, 100));
+    // ESP_ERROR_CHECK(i2c_master_transmit(dev, &value, 1, 100));
+    esp_err_t ret = i2c_master_transmit(dev, &value, 1, 100);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "PCF8574 Write Error: %s", esp_err_to_name(ret));
+    }
+    else {
     ESP_LOGI(TAG, "PCF8574 Write: 0x%02X", value);
+    }
 }
 
 // ---------------------------------------------------
@@ -65,9 +82,16 @@ void pcf8574_write(i2c_master_dev_handle_t dev, uint8_t value)
 uint8_t pcf8574_read(i2c_master_dev_handle_t dev)
 {
     uint8_t data = 0;
-    ESP_ERROR_CHECK(i2c_master_receive(dev, &data, 1, 100));
-    ESP_LOGI(TAG, "PCF8574 Read: 0x%02X", data);
+    // ESP_ERROR_CHECK(i2c_master_receive(dev, &data, 1, 100));
+    esp_err_t ret = i2c_master_receive(dev, &data, 1, 100);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "PCF8574 Read Error: %s", esp_err_to_name(ret));
+        return 0;
+    }
+    else {
+        ESP_LOGI(TAG, "PCF8574 Read: 0x%02X", data);
     return data;
+    }
 }
 
 // ---------------------------------------------------
@@ -86,7 +110,7 @@ void app_main(void)
 
     // 3. Write to PCF8574
     // Example: Turn ON P0, P1, P2 → write LOW (0 means output LOW)
-    pcf8574_write(pcf, 0b11111000);
+    pcf8574_write(pcf, 0b11111100);
 
     // 4. Read Inputs
     while (1) {
